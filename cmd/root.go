@@ -35,8 +35,7 @@ type Release struct {
 	Changes []Change
 }
 
-const releaseTemplate = `
-## [{{ .Version }}] - {{ .Date }}
+const releaseTemplate = `## [{{ .Version }}] - {{ .Date }}
 {{ range .Changes }}
 - {{ .Title }} {{ if .URL }}[{{ .SHA }}]({{ .URL }}){{ else }}[{{ .SHA }}]{{ end }}{{ end }}
 `
