@@ -8,9 +8,14 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+)
+
+var (
+	ErrStopIteration = errors.New("stop iteration")
 )
 
 func init() {
@@ -78,13 +83,22 @@ var rootCmd = &cobra.Command{
 
 		date := time.Now().Format("2006-01-02")
 
+		taggedCommits, err := getTaggedCommits(repo)
+		bail(err)
+
 		release := &Release{
 			Version: version,
 			Date:    date,
 		}
+
 		err = iter.ForEach(func(c *object.Commit) error {
 			var changeURL string
 			hashStr := c.Hash.String()
+			if _, ok := taggedCommits[hashStr]; ok {
+				if len(release.Changes) > 0 {
+					return ErrStopIteration
+				}
+			}
 			if useURL { changeURL = remoteURL + "/commits/" + hashStr }
 			change := Change{
 				SHA:   hashStr[:7],
@@ -95,8 +109,14 @@ var rootCmd = &cobra.Command{
 			return nil
 		})
 
-		tmpl, _ := template.New("release").Parse(releaseTemplate)
-		tmpl.Execute(os.Stdout, release)
+		if err != nil && err != ErrStopIteration {
+			bail(err)
+		}
+
+		tmpl, err := template.New("release").Parse(releaseTemplate)
+		bail(err)
+		err = tmpl.Execute(os.Stdout, release)
+		bail(err)
 	},
 }
 
@@ -133,6 +153,28 @@ func parseRemoteURL(url string) (string, error) {
 
 	repoURL := fmt.Sprintf("%s/%s/%s", baseURL, ws, repoName)
 	return repoURL, nil
+}
+
+func getTaggedCommits(repo *git.Repository) (map[string]bool, error) {
+	tags, err := repo.Tags()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get tags")
+	}
+
+	tagCommitMap := make(map[string]bool)
+	err = tags.ForEach(func(ref *plumbing.Reference) error {
+		tag, err := repo.TagObject(ref.Hash())
+		var commitHash plumbing.Hash
+		if err == nil {
+			commitHash = tag.Target
+		} else {
+			commitHash = ref.Hash()
+		}
+		tagCommitMap[commitHash.String()] = true
+		return nil
+	})
+
+	return tagCommitMap, err
 }
 
 func Execute() {
